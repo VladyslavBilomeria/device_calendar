@@ -677,6 +677,7 @@ public class SwiftDeviceCalendarPlugin: NSObject, FlutterPlugin, EKEventViewDele
             let location = arguments[self.eventLocationArgument] as? String
             let url = arguments[self.eventURLArgument] as? String
             let ekCalendar = self.eventStore.calendar(withIdentifier: calendarId)
+            let followingInstances = arguments[followingInstancesArgument] as? Bool
             if (ekCalendar == nil) {
                 self.finishWithCalendarNotFoundError(result: result, calendarId: calendarId)
                 return
@@ -691,7 +692,16 @@ public class SwiftDeviceCalendarPlugin: NSObject, FlutterPlugin, EKEventViewDele
             if eventId == nil {
                 ekEvent = EKEvent.init(eventStore: self.eventStore)
             } else {
-                ekEvent = self.eventStore.event(withIdentifier: eventId!)
+                if followingInstances != false {
+                    ekEvent = self.eventStore.event(withIdentifier: eventId!)
+                } else {
+                    let predicate = self.eventStore.predicateForEvents(
+                        withStart: startDate,
+                        end: endDate,
+                        calendars: [ekCalendar!])
+                    let ekEvents = self.eventStore.events(matching: predicate)
+                    ekEvent = ekEvents.first(where: {$0.eventIdentifier == eventId})
+                }
                 if(ekEvent == nil) {
                     self.finishWithEventNotFoundError(result: result, eventId: eventId!)
                     return
@@ -721,7 +731,9 @@ public class SwiftDeviceCalendarPlugin: NSObject, FlutterPlugin, EKEventViewDele
                 ekEvent!.url = nil
             }
 
-            ekEvent!.recurrenceRules = createEKRecurrenceRules(arguments)
+            if followingInstances != false {
+                ekEvent!.recurrenceRules = self.createEKRecurrenceRules(arguments)
+            }
             setAttendees(arguments, ekEvent)
             ekEvent!.alarms = createReminders(arguments)
 
@@ -730,7 +742,11 @@ public class SwiftDeviceCalendarPlugin: NSObject, FlutterPlugin, EKEventViewDele
             }
 
             do {
-                try self.eventStore.save(ekEvent!, span: .futureEvents)
+                if followingInstances != false {
+                    try self.eventStore.save(ekEvent!, span: .futureEvents)
+                } else {
+                    try self.eventStore.save(ekEvent!, span: .thisEvent)
+                }
                 result(ekEvent!.eventIdentifier)
             } catch {
                 self.eventStore.reset()
